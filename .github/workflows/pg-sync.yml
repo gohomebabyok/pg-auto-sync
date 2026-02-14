@@ -1,16 +1,19 @@
 name: PG Auto Sync
 
 on:
-  schedule:
-    - cron: "*/10 * * * *"
-  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - 'pg/**.zip.tmp'   # 只在 zip.tmp 文件变化时触发
+  workflow_dispatch:     # 可手动触发
 
 jobs:
   sync:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout PG repo
+      - name: Checkout source repo
         uses: actions/checkout@v4
         with:
           repository: fish2018/PG
@@ -47,7 +50,6 @@ jobs:
           else
             echo "changed=true" >> $GITHUB_OUTPUT
             echo "${{ steps.hash.outputs.hash }}" > last_hash.txt
-          fi
 
       - name: Stop if not changed
         if: steps.compare.outputs.changed == 'false'
@@ -76,9 +78,7 @@ jobs:
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_KEY }}
         run: |
-          aws s3 rm s3://${{ secrets.R2_BUCKET }} \
-          --recursive \
-          --endpoint-url https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+          aws s3 rm s3://${{ secrets.R2_BUCKET }} --recursive --endpoint-url https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
 
       - name: Upload jar directory
         if: steps.compare.outputs.changed == 'true'
@@ -86,8 +86,7 @@ jobs:
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_KEY }}
         run: |
-          aws s3 sync extracted/jar s3://${{ secrets.R2_BUCKET }}/jar \
-          --endpoint-url https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+          aws s3 sync extracted/jar s3://${{ secrets.R2_BUCKET }}/jar --endpoint-url https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
 
       - name: Upload lib directory
         if: steps.compare.outputs.changed == 'true'
@@ -95,5 +94,4 @@ jobs:
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_KEY }}
         run: |
-          aws s3 sync extracted/lib s3://${{ secrets.R2_BUCKET }}/lib \
-          --endpoint-url https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+          aws s3 sync extracted/lib s3://${{ secrets.R2_BUCKET }}/lib --endpoint-url https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
