@@ -1,0 +1,99 @@
+name: PG Auto Sync
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout PG repo
+        uses: actions/checkout@v4
+        with:
+          repository: fish2018/PG
+          path: PG
+
+      - name: Detect zip file
+        id: detect
+        run: |
+          FILE=$(ls PG/pg.*.zip.tmp 2>/dev/null | head -n 1)
+          echo "file=$FILE" >> $GITHUB_OUTPUT
+
+      - name: Stop if no file
+        if: steps.detect.outputs.file == ''
+        run: echo "No zip found"
+
+      - name: Calculate hash
+        if: steps.detect.outputs.file != ''
+        id: hash
+        run: |
+          HASH=$(md5sum ${{ steps.detect.outputs.file }} | cut -d ' ' -f1)
+          echo "hash=$HASH" >> $GITHUB_OUTPUT
+
+      - name: Compare hash
+        if: steps.detect.outputs.file != ''
+        id: compare
+        run: |
+          if [ -f last_hash.txt ]; then
+            OLD=$(cat last_hash.txt)
+          else
+            OLD=""
+          fi
+          if [ "$OLD" = "${{ steps.hash.outputs.hash }}" ]; then
+            echo "changed=false" >> $GITHUB_OUTPUT
+          else
+            echo "changed=true" >> $GITHUB_OUTPUT
+            echo "${{ steps.hash.outputs.hash }}" > last_hash.txt
+          fi
+
+      - name: Stop if not changed
+        if: steps.compare.outputs.changed == 'false'
+        run: echo "No change detected"
+
+      - name: Install unzip
+        if: steps.compare.outputs.changed == 'true'
+        run: sudo apt-get install -y unzip
+
+      - name: Unzip
+        if: steps.compare.outputs.changed == 'true'
+        run: |
+          cp ${{ steps.detect.outputs.file }} pg.zip
+          unzip -o pg.zip -d extracted
+
+      - name: Install AWS CLI
+        if: steps.compare.outputs.changed == 'true'
+        run: |
+          curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+          unzip awscliv2.zip
+          sudo ./aws/install
+
+      - name: Delete old R2 files
+        if: steps.compare.outputs.changed == 'true'
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_KEY }}
+        run: |
+          aws s3 rm s3://${{ secrets.R2_BUCKET }} \
+          --recursive \
+          --endpoint-url https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+
+      - name: Upload jar directory
+        if: steps.compare.outputs.changed == 'true'
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_KEY }}
+        run: |
+          aws s3 sync extracted/jar s3://${{ secrets.R2_BUCKET }}/jar \
+          --endpoint-url https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+
+      - name: Upload lib directory
+        if: steps.compare.outputs.changed == 'true'
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_KEY }}
+        run: |
+          aws s3 sync extracted/lib s3://${{ secrets.R2_BUCKET }}/lib \
+          --endpoint-url https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
